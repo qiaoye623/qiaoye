@@ -14,6 +14,7 @@ class TransactionProvider extends ChangeNotifier {
   bool _loading = false;
   int _currentYear = DateTime.now().year;
   int _currentMonth = DateTime.now().month;
+  int? _currentLedgerId;
 
   List<Transaction> get transactions => _transactions;
   List<models.Category> get expenseCategories => _expenseCategories;
@@ -24,6 +25,13 @@ class TransactionProvider extends ChangeNotifier {
   bool get loading => _loading;
   int get currentYear => _currentYear;
   int get currentMonth => _currentMonth;
+  int? get currentLedgerId => _currentLedgerId;
+
+  void setCurrentLedgerId(int? id) {
+    if (_currentLedgerId == id) return;
+    _currentLedgerId = id;
+    loadMonthlyTransactions();
+  }
 
   Future<void> loadData() async {
     _loading = true;
@@ -41,8 +49,11 @@ class TransactionProvider extends ChangeNotifier {
   }
 
   Future<void> loadMonthlyTransactions() async {
-    _transactions =
-        await _db.getTransactionsByMonth(_currentYear, _currentMonth);
+    _transactions = await _db.getTransactionsByMonth(
+      _currentYear,
+      _currentMonth,
+      ledgerId: _currentLedgerId,
+    );
     _monthlyIncome = 0;
     _monthlyExpense = 0;
     for (final t in _transactions) {
@@ -53,6 +64,12 @@ class TransactionProvider extends ChangeNotifier {
       }
     }
     notifyListeners();
+  }
+
+  void goToMonth(int year, int month) {
+    _currentYear = year;
+    _currentMonth = month;
+    loadMonthlyTransactions();
   }
 
   void goToPrevMonth() {
@@ -85,6 +102,19 @@ class TransactionProvider extends ChangeNotifier {
   }
 
   Future<Map<String, double>> getCategorySummary(String type) async {
-    return await _db.getCategorySummary(_currentYear, _currentMonth, type);
+    return await _db.getCategorySummary(
+      _currentYear,
+      _currentMonth,
+      type,
+      ledgerId: _currentLedgerId,
+    );
+  }
+
+  Future<Map<String, double>> getDailySummariesForMonth() async {
+    return await _db.getDailySummariesForMonth(
+      _currentYear,
+      _currentMonth,
+      ledgerId: _currentLedgerId,
+    );
   }
 }

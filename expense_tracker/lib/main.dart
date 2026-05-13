@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'providers/transaction_provider.dart';
-import 'screens/home_screen.dart';
+import 'providers/ledger_provider.dart';
+import 'providers/asset_account_provider.dart';
+import 'screens/main_shell.dart';
 import 'utils/constants.dart';
 
 void main() {
@@ -15,8 +17,14 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => TransactionProvider()..loadData(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => LedgerProvider()..loadLedgers()),
+        ChangeNotifierProvider(
+            create: (_) => TransactionProvider()..loadData()),
+        ChangeNotifierProvider(
+            create: (_) => AssetAccountProvider()..loadAccounts()),
+      ],
       child: MaterialApp(
         title: '日常记账',
         debugShowCheckedModeBanner: false,
@@ -38,7 +46,7 @@ class MyApp extends StatelessWidget {
           Locale('en', 'US'),
         ],
         locale: const Locale('zh', 'CN'),
-        home: const HomeScreen(),
+        home: const MainShell(),
       ),
     );
   }

@@ -8,6 +8,7 @@ class Transaction {
   final String note;
   final String date;
   final String createdAt;
+  final int ledgerId;
 
   Transaction({
     this.id,
@@ -19,6 +20,7 @@ class Transaction {
     this.note = '',
     required this.date,
     String? createdAt,
+    this.ledgerId = 1,
   }) : createdAt = createdAt ?? DateTime.now().toIso8601String();
 
   Map<String, dynamic> toMap() {
@@ -32,6 +34,7 @@ class Transaction {
       'note': note,
       'date': date,
       'createdAt': createdAt,
+      'ledgerId': ledgerId,
     };
   }
 
@@ -46,6 +49,7 @@ class Transaction {
       note: map['note'] as String? ?? '',
       date: map['date'] as String,
       createdAt: map['createdAt'] as String?,
+      ledgerId: map['ledgerId'] as int? ?? 1,
     );
   }
 }

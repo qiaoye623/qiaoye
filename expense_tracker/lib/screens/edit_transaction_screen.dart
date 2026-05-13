@@ -9,23 +9,39 @@ import '../providers/transaction_provider.dart';
 import '../providers/asset_account_provider.dart';
 import '../utils/constants.dart';
 
-class AddTransactionScreen extends StatefulWidget {
-  final int? preSelectedLedgerId;
-  const AddTransactionScreen({super.key, this.preSelectedLedgerId});
+class EditTransactionScreen extends StatefulWidget {
+  final Transaction transaction;
+  const EditTransactionScreen({super.key, required this.transaction});
 
   @override
-  State<AddTransactionScreen> createState() => _AddTransactionScreenState();
+  State<EditTransactionScreen> createState() => _EditTransactionScreenState();
 }
 
-class _AddTransactionScreenState extends State<AddTransactionScreen> {
-  String _selectedType = 'expense';
+class _EditTransactionScreenState extends State<EditTransactionScreen> {
+  late String _selectedType;
   cat.Category? _selectedCategory;
   AssetAccount? _selectedAccount;
-  final _amountController = TextEditingController();
-  final _noteController = TextEditingController();
+  late TextEditingController _amountController;
+  late TextEditingController _noteController;
   final _noteFocusNode = FocusNode();
-  DateTime _selectedDate = DateTime.now();
+  late DateTime _selectedDate;
   bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final t = widget.transaction;
+    _selectedType = t.type;
+    _amountController = TextEditingController(text: t.amount.toString());
+    _noteController = TextEditingController(text: t.note);
+    _selectedDate = DateFormat('yyyy-MM-dd').parse(t.date);
+    _selectedCategory = cat.Category(
+      id: t.categoryId,
+      name: t.categoryName,
+      icon: t.categoryIcon,
+      type: t.type,
+    );
+  }
 
   @override
   void dispose() {
@@ -47,7 +63,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
         appBar: PreferredSize(
           preferredSize: const Size.fromHeight(44),
           child: AppBar(
-            title: const Text('新增账单', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            title: const Text('编辑账单', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
             leading: IconButton(
               icon: const Icon(Icons.arrow_back, size: 24),
               onPressed: _confirmBack,
@@ -82,7 +98,11 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
   }
 
   void _confirmBack() {
-    if (_amountController.text.trim().isNotEmpty || _noteController.text.trim().isNotEmpty) {
+    final changed = _amountController.text.trim() != widget.transaction.amount.toString() ||
+        _noteController.text.trim() != widget.transaction.note ||
+        _selectedDate != DateFormat('yyyy-MM-dd').parse(widget.transaction.date) ||
+        _selectedCategory?.id != widget.transaction.categoryId;
+    if (changed) {
       showDialog(
         context: context,
         builder: (ctx) => AlertDialog(
@@ -210,11 +230,9 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
           children: [
             Icon(icon, size: 22, color: const Color(0xFF333333)),
             const SizedBox(width: 16),
-            Text(label,
-                style: const TextStyle(fontSize: 14, color: Color(0xFF333333))),
+            Text(label, style: const TextStyle(fontSize: 14, color: Color(0xFF333333))),
             const Spacer(),
-            Text(value,
-                style: const TextStyle(fontSize: 14, color: Color(0xFF999999))),
+            Text(value, style: const TextStyle(fontSize: 14, color: Color(0xFF999999))),
             const SizedBox(width: 4),
             const Icon(Icons.chevron_right, size: 18, color: Color(0xFF999999)),
           ],
@@ -233,8 +251,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
           children: [
             const Icon(Icons.calendar_today_outlined, size: 22, color: Color(0xFF333333)),
             const SizedBox(width: 16),
-            const Text('日期',
-                style: TextStyle(fontSize: 14, color: Color(0xFF333333))),
+            const Text('日期', style: TextStyle(fontSize: 14, color: Color(0xFF333333))),
             const Spacer(),
             Text(DateFormat('yyyy-MM-dd').format(_selectedDate),
                 style: const TextStyle(fontSize: 14, color: Color(0xFF999999))),
@@ -254,8 +271,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
         children: [
           const Icon(Icons.notes_outlined, size: 22, color: Color(0xFF333333)),
           const SizedBox(width: 16),
-          const Text('备注',
-              style: TextStyle(fontSize: 14, color: Color(0xFF333333))),
+          const Text('备注', style: TextStyle(fontSize: 14, color: Color(0xFF333333))),
           const SizedBox(width: 12),
           Expanded(
             child: TextField(
@@ -297,8 +313,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('选择分类',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                const Text('选择分类', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 IconButton(
                   icon: const Icon(Icons.close),
                   onPressed: () => Navigator.pop(ctx),
@@ -337,9 +352,10 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
                         const SizedBox(height: 4),
                         Text(c.name,
                             style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: sel ? FontWeight.w600 : FontWeight.normal,
-                                color: sel ? const Color(0xFF1677FF) : const Color(0xFF333333)),
+                              fontSize: 12,
+                              fontWeight: sel ? FontWeight.w600 : FontWeight.normal,
+                              color: sel ? const Color(0xFF1677FF) : const Color(0xFF333333),
+                            ),
                             textAlign: TextAlign.center),
                       ],
                     ),
@@ -370,8 +386,7 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('选择账户',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                const Text('选择账户', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 IconButton(
                   icon: const Icon(Icons.close),
                   onPressed: () => Navigator.pop(ctx),
@@ -424,7 +439,8 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
 
     setState(() => _saving = true);
 
-    final transaction = Transaction(
+    final updated = Transaction(
+      id: widget.transaction.id,
       amount: amount,
       type: _selectedType,
       categoryId: _selectedCategory!.id!,
@@ -432,10 +448,11 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       categoryIcon: _selectedCategory!.icon,
       note: _noteController.text.trim(),
       date: DateFormat('yyyy-MM-dd').format(_selectedDate),
-      ledgerId: widget.preSelectedLedgerId ?? 1,
+      createdAt: widget.transaction.createdAt,
+      ledgerId: widget.transaction.ledgerId,
     );
 
-    await context.read<TransactionProvider>().addTransaction(transaction);
+    await context.read<TransactionProvider>().updateTransaction(updated);
     if (mounted) Navigator.pop(context);
   }
 

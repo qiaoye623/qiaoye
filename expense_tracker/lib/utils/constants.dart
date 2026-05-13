@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
 
 class AppColors {
-  static const primary = Color(0xFF2196F3);
-  static const income = Color(0xFF4CAF50);
-  static const expense = Color(0xFFF44336);
-  static const background = Color(0xFFF5F5F5);
-  static const cardBackground = Colors.white;
-  static const textPrimary = Color(0xFF212121);
-  static const textSecondary = Color(0xFF757575);
-  static const divider = Color(0xFFE0E0E0);
+  static const primary = Color(0xFF1677FF);
+  static const income = Color(0xFF52C41A);
+  static const expense = Color(0xFFF5222D);
+  static const background = Color(0xFFF5F7FA);
+  static const cardBackground = Color(0xFFFFFFFF);
+  static const textPrimary = Color(0xFF333333);
+  static const textSecondary = Color(0xFF666666);
+  static const textHint = Color(0xFF999999);
+  static const divider = Color(0xFFEEEEEE);
+  static const summaryBg = Color(0xFF1677FF);
 }
 
 String formatAmount(double amount) {
