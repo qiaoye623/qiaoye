@@ -3,6 +3,8 @@ import '../models/transaction.dart';
 import '../models/category.dart';
 import '../models/ledger.dart';
 import '../models/asset_account.dart';
+import '../models/save_plan.dart';
+import '../models/save_record.dart';
 import '../utils/constants.dart';
 
 class DatabaseHelper {
@@ -11,10 +13,12 @@ class DatabaseHelper {
   DatabaseHelper._internal();
 
   Database? _database;
+  Future<Database>? _initFuture;
 
   Future<Database> get database async {
     if (_database != null) return _database!;
-    _database = await _initDatabase();
+    _initFuture ??= _initDatabase();
+    _database = await _initFuture;
     return _database!;
   }
 
@@ -44,6 +48,18 @@ class DatabaseHelper {
     }
 
     final ledgerStore = _ledgerStore();
+    // 清理同名重复账本
+    final allLedgers = await ledgerStore.find(db);
+    final seenLedgers = <String, int>{};
+    for (final r in allLedgers) {
+      final name = r['name'] as String? ?? '';
+      if (seenLedgers.containsKey(name)) {
+        await ledgerStore.delete(db,
+            finder: Finder(filter: Filter.equals(Field.key, r.key)));
+      } else {
+        seenLedgers[name] = r.key;
+      }
+    }
     if (await ledgerStore.count(db) == 0) {
       await ledgerStore.add(db, {
         'name': '个人账本',
@@ -57,16 +73,61 @@ class DatabaseHelper {
     final assetStore = _assetAccountStore();
     if (await assetStore.count(db) == 0) {
       final defaults = [
-        {'name': '微信', 'icon': '💳', 'type': 'wallet', 'balance': 0.0, 'isDefault': 1},
-        {'name': '支付宝', 'icon': '📱', 'type': 'wallet', 'balance': 0.0, 'isDefault': 1},
+        {'name': '微信钱包', 'icon': '💳', 'type': 'wallet', 'balance': 0.0, 'isDefault': 1},
+        {'name': '支付宝钱包', 'icon': '📱', 'type': 'wallet', 'balance': 0.0, 'isDefault': 1},
         {'name': '现金', 'icon': '💵', 'type': 'cash', 'balance': 0.0, 'isDefault': 1},
-        {'name': '储蓄卡', 'icon': '🏦', 'type': 'bank', 'balance': 0.0, 'isDefault': 1},
-        {'name': '信用卡', 'icon': '💳', 'type': 'credit', 'balance': 0.0, 'isDefault': 1},
-        {'name': '蚂蚁花呗', 'icon': '🌸', 'type': 'credit', 'balance': 0.0, 'isDefault': 1},
-        {'name': '京东白条', 'icon': '🐶', 'type': 'credit', 'balance': 0.0, 'isDefault': 1},
       ];
       for (final a in defaults) {
         await assetStore.add(db, a);
+      }
+    } else {
+      await _migrateAssetAccountsWeb(db, assetStore);
+    }
+  }
+
+  Future<void> _migrateAssetAccountsWeb(
+      Database db, StoreRef<int, Map<String, Object?>> store) async {
+    final all = await store.find(db);
+
+    // Step 1: 去重 — 同名资产只保留 id 最小的那条
+    final seen = <String, int>{};
+    final toDelete = <int>{};
+    // 先重命名旧名称，再统一去重
+    for (final r in all) {
+      final name = r['name'] as String? ?? '';
+      final resolved = name == '微信' ? '微信钱包' : name == '支付宝' ? '支付宝钱包' : name;
+      if (seen.containsKey(resolved)) {
+        toDelete.add(r.key);
+      } else {
+        seen[resolved] = r.key;
+      }
+    }
+    for (final key in toDelete) {
+      await store.delete(db, finder: Finder(filter: Filter.equals(Field.key, key)));
+    }
+
+    // Step 2: 重命名旧名称（微信→微信钱包, 支付宝→支付宝钱包）
+    // 重新获取，因为去重后 record 可能已变
+    final afterDedup = await store.find(db);
+    for (final r in afterDedup) {
+      final name = r['name'] as String? ?? '';
+      if (name == '微信') {
+        await store.update(db, {'name': '微信钱包'},
+            finder: Finder(filter: Filter.equals(Field.key, r.key)));
+      } else if (name == '支付宝') {
+        await store.update(db, {'name': '支付宝钱包'},
+            finder: Finder(filter: Filter.equals(Field.key, r.key)));
+      }
+    }
+
+    // Step 3: 删除非基础默认账户
+    final toClean = await store.find(db);
+    for (final r in toClean) {
+      final name = r['name'] as String? ?? '';
+      if (r['isDefault'] == 1 &&
+          !['微信钱包', '支付宝钱包', '现金'].contains(name)) {
+        await store.delete(db,
+            finder: Finder(filter: Filter.equals(Field.key, r.key)));
       }
     }
   }
@@ -87,6 +148,14 @@ class DatabaseHelper {
     return intMapStoreFactory.store('asset_accounts');
   }
 
+  StoreRef<int, Map<String, Object?>> _savePlanStore() {
+    return intMapStoreFactory.store('save_plans');
+  }
+
+  StoreRef<int, Map<String, Object?>> _saveRecordStore() {
+    return intMapStoreFactory.store('save_records');
+  }
+
   // ============ Categories ============
 
   Future<List<Category>> getCategories(String type) async {
@@ -104,6 +173,34 @@ class DatabaseHelper {
     return records.map(_toCategory).toList();
   }
 
+  Future<int> insertCategory(Category category) async {
+    final db = await database;
+    return await _categoryStore().add(db, {
+      'name': category.name,
+      'icon': category.icon,
+      'type': category.type,
+    });
+  }
+
+  Future<int> updateCategory(Category category) async {
+    final db = await database;
+    await _categoryStore().update(
+      db,
+      {'name': category.name, 'icon': category.icon, 'type': category.type},
+      finder: Finder(filter: Filter.equals(Field.key, category.id)),
+    );
+    return category.id!;
+  }
+
+  Future<int> deleteCategory(int id) async {
+    final db = await database;
+    await _categoryStore().delete(
+      db,
+      finder: Finder(filter: Filter.equals(Field.key, id)),
+    );
+    return id;
+  }
+
   // ============ Transactions ============
 
   Future<int> insertTransaction(Transaction transaction) async {
@@ -118,6 +215,7 @@ class DatabaseHelper {
       'date': transaction.date,
       'createdAt': transaction.createdAt,
       'ledgerId': transaction.ledgerId,
+      'accountId': transaction.accountId,
     });
   }
 
@@ -135,6 +233,7 @@ class DatabaseHelper {
         'date': transaction.date,
         'createdAt': transaction.createdAt,
         'ledgerId': transaction.ledgerId,
+        'accountId': transaction.accountId,
       },
       finder: Finder(filter: Filter.equals(Field.key, transaction.id)),
     );
@@ -286,6 +385,17 @@ class DatabaseHelper {
     return ledger.id!;
   }
 
+  Future<void> setDefaultLedger(int id) async {
+    final db = await database;
+    final all = await _ledgerStore().find(db);
+    for (final r in all) {
+      if (r.key == id || r.value['isDefault'] == 1) {
+        await _ledgerStore().update(db, {'isDefault': r.key == id ? 1 : 0},
+            finder: Finder(filter: Filter.equals(Field.key, r.key)));
+      }
+    }
+  }
+
   Future<int> deleteLedger(int id) async {
     final db = await database;
     await _ledgerStore().delete(
@@ -345,6 +455,108 @@ class DatabaseHelper {
     return id;
   }
 
+  // ============ Save Plans ============
+
+  Future<List<SavePlan>> getSavePlans() async {
+    final db = await database;
+    final records = await _savePlanStore().find(db);
+    return records
+        .map((r) => SavePlan.fromMap(r.value, id: r.key))
+        .toList()
+      ..sort((a, b) => (b.createdAt ?? '').compareTo(a.createdAt ?? ''));
+  }
+
+  Future<SavePlan?> getSavePlanById(int id) async {
+    final db = await database;
+    final records = await _savePlanStore().find(
+      db,
+      finder: Finder(filter: Filter.equals(Field.key, id)),
+    );
+    if (records.isEmpty) return null;
+    return SavePlan.fromMap(records.first.value, id: records.first.key);
+  }
+
+  Future<int> insertSavePlan(SavePlan plan) async {
+    final db = await database;
+    return await _savePlanStore().add(db, plan.toMap());
+  }
+
+  Future<void> updateSavePlan(SavePlan plan) async {
+    final db = await database;
+    await _savePlanStore().update(
+      db,
+      plan.toMap(),
+      finder: Finder(filter: Filter.equals(Field.key, plan.id)),
+    );
+  }
+
+  Future<void> deleteSavePlan(int id) async {
+    final db = await database;
+    await _savePlanStore().delete(
+      db,
+      finder: Finder(filter: Filter.equals(Field.key, id)),
+    );
+    // cascade delete records
+    await _saveRecordStore().delete(
+      db,
+      finder: Finder(filter: Filter.equals('plan_id', id)),
+    );
+  }
+
+  // ============ Save Records ============
+
+  Future<List<SaveRecord>> getSaveRecords(int planId) async {
+    final db = await database;
+    final records = await _saveRecordStore().find(
+      db,
+      finder: Finder(filter: Filter.equals('plan_id', planId)),
+    );
+    final result = records
+        .map((r) => SaveRecord.fromMap(r.value, id: r.key))
+        .toList();
+    result.sort((a, b) => a.sequenceIndex.compareTo(b.sequenceIndex));
+    return result;
+  }
+
+  Future<SaveRecord?> getSaveRecordById(int id) async {
+    final db = await database;
+    final records = await _saveRecordStore().find(
+      db,
+      finder: Finder(filter: Filter.equals(Field.key, id)),
+    );
+    if (records.isEmpty) return null;
+    return SaveRecord.fromMap(records.first.value, id: records.first.key);
+  }
+
+  Future<void> insertSaveRecord(SaveRecord record) async {
+    final db = await database;
+    await _saveRecordStore().add(db, record.toMap());
+  }
+
+  Future<void> batchInsertSaveRecords(List<SaveRecord> records) async {
+    final db = await database;
+    for (final r in records) {
+      await _saveRecordStore().add(db, r.toMap());
+    }
+  }
+
+  Future<void> updateSaveRecord(SaveRecord record) async {
+    final db = await database;
+    await _saveRecordStore().update(
+      db,
+      record.toMap(),
+      finder: Finder(filter: Filter.equals(Field.key, record.id)),
+    );
+  }
+
+  Future<void> deleteSaveRecordsByPlanId(int planId) async {
+    final db = await database;
+    await _saveRecordStore().delete(
+      db,
+      finder: Finder(filter: Filter.equals('plan_id', planId)),
+    );
+  }
+
   // ============ Converters ============
 
   Transaction _toTransaction(RecordSnapshot<int, Map<String, Object?>> r) {
@@ -359,6 +571,7 @@ class DatabaseHelper {
       date: r['date'] as String,
       createdAt: r['createdAt'] as String?,
       ledgerId: r['ledgerId'] as int? ?? 1,
+      accountId: r['accountId'] as int?,
     );
   }
 

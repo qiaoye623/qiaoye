@@ -97,6 +97,14 @@ class LedgerTab extends StatelessWidget {
           ),
           if (!isDefault)
             SlidableAction(
+              onPressed: (_) => provider.setDefaultLedger(ledger.id!),
+              backgroundColor: const Color(0xFF52C41A),
+              foregroundColor: Colors.white,
+              icon: Icons.check_circle_outline,
+              label: '默认',
+            ),
+          if (!isDefault)
+            SlidableAction(
               onPressed: (_) => _confirmDelete(context, ledger, provider),
               backgroundColor: const Color(0xFFF5222D),
               foregroundColor: Colors.white,
@@ -319,12 +327,21 @@ class LedgerTab extends StatelessWidget {
               child: const Text('取消'),
             ),
             TextButton(
-              onPressed: () {
+              onPressed: () async {
                 if (nameController.text.trim().isEmpty) return;
-                context
-                    .read<LedgerProvider>()
-                    .createLedger(nameController.text.trim(), selectedIcon);
-                Navigator.pop(ctx);
+                try {
+                  await context
+                      .read<LedgerProvider>()
+                      .createLedger(nameController.text.trim(), selectedIcon);
+                  if (ctx.mounted) Navigator.pop(ctx);
+                } catch (e) {
+                  if (ctx.mounted) {
+                    Navigator.pop(ctx);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(e.toString())),
+                    );
+                  }
+                }
               },
               child: const Text('创建', style: TextStyle(color: Color(0xFF1677FF))),
             ),

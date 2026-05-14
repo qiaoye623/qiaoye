@@ -1,10 +1,14 @@
 import 'package:sqflite_common_ffi/sqflite_ffi.dart' hide Transaction;
 import 'package:path/path.dart' as p;
+import 'package:sqlite3/open.dart';
+import 'dart:ffi';
 import 'dart:io';
 import '../models/transaction.dart';
 import '../models/category.dart';
 import '../models/ledger.dart';
 import '../models/asset_account.dart';
+import '../models/save_plan.dart';
+import '../models/save_record.dart';
 import '../utils/constants.dart';
 
 class DatabaseHelper {
@@ -13,10 +17,12 @@ class DatabaseHelper {
   DatabaseHelper._internal();
 
   static Database? _database;
+  static Future<Database>? _initFuture;
 
   Future<Database> get database async {
     if (_database != null) return _database!;
-    _database = await _initDatabase();
+    _initFuture ??= _initDatabase();
+    _database = await _initFuture;
     return _database!;
   }
 
@@ -29,11 +35,19 @@ class DatabaseHelper {
     final path = await _dbPath;
 
     if (Platform.isWindows || Platform.isLinux) {
+      // Windows release mode: sqfliteFfiInit can't find the bundled sqlite3.dll
+      // via pubspec.lock, so we register the override explicitly to load from
+      // the executable directory (where users must place sqlite3.dll)
+      if (Platform.isWindows) {
+        open.overrideFor(OperatingSystem.windows, () {
+          return DynamicLibrary.open('sqlite3.dll');
+        });
+      }
       sqfliteFfiInit();
       return await databaseFactoryFfi.openDatabase(
         path,
         options: OpenDatabaseOptions(
-          version: 2,
+          version: 8,
           onCreate: _onCreate,
           onUpgrade: _onUpgrade,
         ),
@@ -42,7 +56,7 @@ class DatabaseHelper {
 
     return await openDatabase(
       path,
-      version: 2,
+      version: 8,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -95,6 +109,37 @@ class DatabaseHelper {
       )
     ''');
 
+    await db.execute('''
+      CREATE TABLE save_plans(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        start_amount REAL NOT NULL DEFAULT 0,
+        duration_days INTEGER NOT NULL DEFAULT 0,
+        increment_coeff REAL NOT NULL DEFAULT 0,
+        month_amount REAL NOT NULL DEFAULT 0,
+        total_target REAL NOT NULL DEFAULT 0,
+        current_amount REAL NOT NULL DEFAULT 0,
+        icon_code INTEGER NOT NULL DEFAULT 0,
+        start_date TEXT NOT NULL,
+        created_at TEXT,
+        status TEXT NOT NULL DEFAULT 'active'
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE save_records(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        plan_id INTEGER NOT NULL REFERENCES save_plans(id) ON DELETE CASCADE,
+        sequence_index INTEGER NOT NULL,
+        target_amount REAL NOT NULL DEFAULT 0,
+        saved_amount REAL NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'pending',
+        saved_date TEXT,
+        created_at TEXT
+      )
+    ''');
+
     await _insertDefaultCategories(db);
     await _insertDefaultLedger(db);
     await _insertDefaultAssetAccounts(db);
@@ -130,6 +175,86 @@ class DatabaseHelper {
       await _insertDefaultLedger(db);
       await _insertDefaultAssetAccounts(db);
     }
+    if (oldVersion < 3) {
+      await db.execute('''
+        CREATE TABLE save_plans(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL,
+          start_amount REAL NOT NULL DEFAULT 0,
+          duration_days INTEGER NOT NULL DEFAULT 0,
+          increment_coeff REAL NOT NULL DEFAULT 0,
+          month_amount REAL NOT NULL DEFAULT 0,
+          total_target REAL NOT NULL DEFAULT 0,
+          current_amount REAL NOT NULL DEFAULT 0,
+          icon_code INTEGER NOT NULL DEFAULT 0,
+          start_date TEXT NOT NULL,
+          created_at TEXT,
+          status TEXT NOT NULL DEFAULT 'active'
+        )
+      ''');
+
+      await db.execute('''
+        CREATE TABLE save_records(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          plan_id INTEGER NOT NULL REFERENCES save_plans(id) ON DELETE CASCADE,
+          sequence_index INTEGER NOT NULL,
+          target_amount REAL NOT NULL DEFAULT 0,
+          saved_amount REAL NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'pending',
+          saved_date TEXT,
+          created_at TEXT
+        )
+      ''');
+    }
+    if (oldVersion < 4) {
+      await db.execute(
+          "ALTER TABLE save_plans ADD COLUMN month_amount REAL NOT NULL DEFAULT 0");
+    }
+    if (oldVersion < 5) {
+      await db.execute('''
+        DELETE FROM asset_accounts WHERE id NOT IN (
+          SELECT MIN(id) FROM asset_accounts GROUP BY name
+        )
+      ''');
+    }
+    if (oldVersion < 6) {
+      await db.execute('''
+        DELETE FROM asset_accounts WHERE id NOT IN (
+          SELECT MIN(id) FROM asset_accounts GROUP BY name
+        )
+      ''');
+      await db.execute('''
+        DELETE FROM asset_accounts WHERE isDefault = 1
+        AND name NOT IN ('微信', '支付宝', '现金')
+      ''');
+      await db.execute('''
+        UPDATE asset_accounts SET name = '微信钱包', icon = '💳'
+        WHERE name = '微信' AND isDefault = 1
+      ''');
+      await db.execute('''
+        UPDATE asset_accounts SET name = '支付宝钱包', icon = '📱'
+        WHERE name = '支付宝' AND isDefault = 1
+      ''');
+      await db.execute('''
+        DELETE FROM ledgers WHERE id NOT IN (
+          SELECT MIN(id) FROM ledgers GROUP BY name
+        )
+      ''');
+    }
+    if (oldVersion < 7) {
+      await db.execute('ALTER TABLE transactions ADD COLUMN accountId INTEGER');
+    }
+    if (oldVersion < 8) {
+      // 清空所有数据并重建
+      await db.execute('DROP TABLE IF EXISTS save_records');
+      await db.execute('DROP TABLE IF EXISTS save_plans');
+      await db.execute('DROP TABLE IF EXISTS asset_accounts');
+      await db.execute('DROP TABLE IF EXISTS transactions');
+      await db.execute('DROP TABLE IF EXISTS ledgers');
+      await db.execute('DROP TABLE IF EXISTS categories');
+      await _onCreate(db, 8);
+    }
   }
 
   Future<void> _insertDefaultCategories(Database db) async {
@@ -152,6 +277,14 @@ class DatabaseHelper {
   }
 
   Future<void> _insertDefaultLedger(Database db) async {
+    // 清理同名重复账本（同名只保留 id 最小的那条）
+    await db.execute('''
+      DELETE FROM ledgers WHERE id NOT IN (
+        SELECT MIN(id) FROM ledgers GROUP BY name
+      )
+    ''');
+    final result = await db.rawQuery('SELECT COUNT(*) as c FROM ledgers');
+    if ((result.first['c'] as int) > 0) return;
     await db.insert('ledgers', {
       'name': '个人账本',
       'icon': '📒',
@@ -162,15 +295,14 @@ class DatabaseHelper {
   }
 
   Future<void> _insertDefaultAssetAccounts(Database db) async {
+    final result = await db.rawQuery('SELECT COUNT(*) as c FROM asset_accounts');
+    if ((result.first['c'] as int) > 0) return;
+
     final batch = db.batch();
     final defaults = [
-      {'name': '微信', 'icon': '💳', 'type': 'wallet', 'balance': 0.0},
-      {'name': '支付宝', 'icon': '📱', 'type': 'wallet', 'balance': 0.0},
+      {'name': '微信钱包', 'icon': '💳', 'type': 'wallet', 'balance': 0.0},
+      {'name': '支付宝钱包', 'icon': '📱', 'type': 'wallet', 'balance': 0.0},
       {'name': '现金', 'icon': '💵', 'type': 'cash', 'balance': 0.0},
-      {'name': '储蓄卡', 'icon': '🏦', 'type': 'bank', 'balance': 0.0},
-      {'name': '信用卡', 'icon': '💳', 'type': 'credit', 'balance': 0.0},
-      {'name': '蚂蚁花呗', 'icon': '🌸', 'type': 'credit', 'balance': 0.0},
-      {'name': '京东白条', 'icon': '🐶', 'type': 'credit', 'balance': 0.0},
     ];
     for (final a in defaults) {
       batch.insert('asset_accounts', {
@@ -198,6 +330,30 @@ class DatabaseHelper {
     final db = await database;
     final maps = await db.query('categories', orderBy: 'id ASC');
     return maps.map((map) => Category.fromMap(map)).toList();
+  }
+
+  Future<int> insertCategory(Category category) async {
+    final db = await database;
+    return await db.insert('categories', {
+      'name': category.name,
+      'icon': category.icon,
+      'type': category.type,
+    });
+  }
+
+  Future<int> updateCategory(Category category) async {
+    final db = await database;
+    return await db.update(
+      'categories',
+      {'name': category.name, 'icon': category.icon, 'type': category.type},
+      where: 'id = ?',
+      whereArgs: [category.id],
+    );
+  }
+
+  Future<int> deleteCategory(int id) async {
+    final db = await database;
+    return await db.delete('categories', where: 'id = ?', whereArgs: [id]);
   }
 
   // ============ Transactions ============
@@ -395,6 +551,14 @@ class DatabaseHelper {
     );
   }
 
+  Future<void> setDefaultLedger(int id) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.update('ledgers', {'isDefault': 0});
+      await txn.update('ledgers', {'isDefault': 1}, where: 'id = ?', whereArgs: [id]);
+    });
+  }
+
   Future<int> deleteLedger(int id) async {
     final db = await database;
     return await db.delete('ledgers', where: 'id = ?', whereArgs: [id]);
@@ -442,5 +606,91 @@ class DatabaseHelper {
     final db = await database;
     return await db
         .delete('asset_accounts', where: 'id = ?', whereArgs: [id]);
+  }
+
+  // ============ Save Plans ============
+
+  Future<List<SavePlan>> getSavePlans() async {
+    final db = await database;
+    final maps =
+        await db.query('save_plans', orderBy: 'created_at DESC');
+    return maps.map((map) => SavePlan.fromMap(map)).toList();
+  }
+
+  Future<SavePlan?> getSavePlanById(int id) async {
+    final db = await database;
+    final maps = await db.query('save_plans',
+        where: 'id = ?', whereArgs: [id]);
+    if (maps.isEmpty) return null;
+    return SavePlan.fromMap(maps.first);
+  }
+
+  Future<int> insertSavePlan(SavePlan plan) async {
+    final db = await database;
+    return await db.insert('save_plans', plan.toMap());
+  }
+
+  Future<void> updateSavePlan(SavePlan plan) async {
+    final db = await database;
+    await db.update(
+      'save_plans',
+      plan.toMap()..remove('id'),
+      where: 'id = ?',
+      whereArgs: [plan.id],
+    );
+  }
+
+  Future<void> deleteSavePlan(int id) async {
+    final db = await database;
+    await db.delete('save_plans', where: 'id = ?', whereArgs: [id]);
+  }
+
+  // ============ Save Records ============
+
+  Future<List<SaveRecord>> getSaveRecords(int planId) async {
+    final db = await database;
+    final maps = await db.query('save_records',
+        where: 'plan_id = ?',
+        whereArgs: [planId],
+        orderBy: 'sequence_index ASC');
+    return maps.map((map) => SaveRecord.fromMap(map)).toList();
+  }
+
+  Future<SaveRecord?> getSaveRecordById(int id) async {
+    final db = await database;
+    final maps = await db.query('save_records',
+        where: 'id = ?', whereArgs: [id]);
+    if (maps.isEmpty) return null;
+    return SaveRecord.fromMap(maps.first);
+  }
+
+  Future<void> insertSaveRecord(SaveRecord record) async {
+    final db = await database;
+    await db.insert('save_records', record.toMap());
+  }
+
+  Future<void> batchInsertSaveRecords(List<SaveRecord> records) async {
+    final db = await database;
+    final batch = db.batch();
+    for (final r in records) {
+      batch.insert('save_records', r.toMap());
+    }
+    await batch.commit(noResult: true);
+  }
+
+  Future<void> updateSaveRecord(SaveRecord record) async {
+    final db = await database;
+    await db.update(
+      'save_records',
+      record.toMap()..remove('id'),
+      where: 'id = ?',
+      whereArgs: [record.id],
+    );
+  }
+
+  Future<void> deleteSaveRecordsByPlanId(int planId) async {
+    final db = await database;
+    await db.delete('save_records',
+        where: 'plan_id = ?', whereArgs: [planId]);
   }
 }

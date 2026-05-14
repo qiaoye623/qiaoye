@@ -37,12 +37,16 @@ class TransactionProvider extends ChangeNotifier {
     _loading = true;
     notifyListeners();
 
-    final expCats = _db.getCategories('expense');
-    final incCats = _db.getCategories('income');
-    final results = await Future.wait([expCats, incCats]);
-    _expenseCategories = results[0];
-    _incomeCategories = results[1];
-    await loadMonthlyTransactions();
+    try {
+      final expCats = _db.getCategories('expense');
+      final incCats = _db.getCategories('income');
+      final results = await Future.wait([expCats, incCats]);
+      _expenseCategories = results[0];
+      _incomeCategories = results[1];
+      await loadMonthlyTransactions();
+    } catch (e) {
+      debugPrint('Failed to load transaction data: $e');
+    }
 
     _loading = false;
     notifyListeners();

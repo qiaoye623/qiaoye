@@ -4,6 +4,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'providers/transaction_provider.dart';
 import 'providers/ledger_provider.dart';
 import 'providers/asset_account_provider.dart';
+import 'providers/save_provider.dart';
 import 'screens/main_shell.dart';
 import 'utils/constants.dart';
 
@@ -24,6 +25,8 @@ class MyApp extends StatelessWidget {
             create: (_) => TransactionProvider()..loadData()),
         ChangeNotifierProvider(
             create: (_) => AssetAccountProvider()..loadAccounts()),
+        ChangeNotifierProvider(
+            create: (_) => SaveProvider()),
       ],
       child: MaterialApp(
         title: '日常记账',

@@ -30,7 +30,7 @@ class _MainShellState extends State<MainShell> {
         children: _pages,
       ),
       bottomNavigationBar: Container(
-        height: 50,
+        height: 60,
         decoration: const BoxDecoration(
           color: Colors.white,
           border: Border(top: BorderSide(color: Color(0xFFEEEEEE), width: 1)),

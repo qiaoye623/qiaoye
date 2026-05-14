@@ -424,6 +424,10 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
 
     setState(() => _saving = true);
 
+    // 预先获取 provider，避免 async gap 后使用 context
+    final txnProvider = context.read<TransactionProvider>();
+    final accountProvider = context.read<AssetAccountProvider>();
+
     final transaction = Transaction(
       amount: amount,
       type: _selectedType,
@@ -433,9 +437,23 @@ class _AddTransactionScreenState extends State<AddTransactionScreen> {
       note: _noteController.text.trim(),
       date: DateFormat('yyyy-MM-dd').format(_selectedDate),
       ledgerId: widget.preSelectedLedgerId ?? 1,
+      accountId: _selectedAccount?.id,
     );
 
-    await context.read<TransactionProvider>().addTransaction(transaction);
+    await txnProvider.addTransaction(transaction);
+
+    if (_selectedAccount != null && _selectedAccount!.id != null) {
+      final currentAccount = accountProvider.accounts.firstWhere(
+        (a) => a.id == _selectedAccount!.id,
+      );
+      final delta = _selectedType == 'income' ? amount : -amount;
+      final newBalance = currentAccount.balance + delta;
+      await accountProvider.updateBalance(
+            _selectedAccount!.id!,
+            newBalance,
+          );
+    }
+
     if (mounted) Navigator.pop(context);
   }
 

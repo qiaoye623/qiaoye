@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../utils/constants.dart';
+import '../models/transaction.dart';
 import '../providers/transaction_provider.dart';
+import '../providers/asset_account_provider.dart';
 import '../widgets/transaction_list_item.dart';
 import '../widgets/calendar_view.dart';
 import 'asset_account_screen.dart';
@@ -263,7 +265,7 @@ class _DetailsTabState extends State<DetailsTab> {
                       builder: (_) => EditTransactionScreen(transaction: t),
                     ),
                   ),
-                  onDelete: () => _confirmDelete(context, t.id!),
+                  onDelete: () => _confirmDelete(context, t),
                 )),
           ],
         );
@@ -271,7 +273,7 @@ class _DetailsTabState extends State<DetailsTab> {
     );
   }
 
-  void _confirmDelete(BuildContext context, int id) {
+  void _confirmDelete(BuildContext context, Transaction txn) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -284,7 +286,13 @@ class _DetailsTabState extends State<DetailsTab> {
           ),
           TextButton(
             onPressed: () {
-              context.read<TransactionProvider>().deleteTransaction(id);
+              context.read<TransactionProvider>().deleteTransaction(txn.id!);
+              if (txn.accountId != null) {
+                final accountProvider = context.read<AssetAccountProvider>();
+                final delta = txn.type == 'income' ? -txn.amount : txn.amount;
+                final account = accountProvider.accounts.firstWhere((a) => a.id == txn.accountId);
+                accountProvider.updateBalance(txn.accountId!, account.balance + delta);
+              }
               Navigator.pop(ctx);
             },
             child: const Text('删除', style: TextStyle(color: Colors.red)),

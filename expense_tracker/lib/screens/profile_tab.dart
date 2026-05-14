@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import '../utils/constants.dart';
 import 'asset_account_screen.dart';
+import 'save/save_home_screen.dart';
+import 'qr_code_screen.dart';
+import 'category_manage_screen.dart';
+import 'annual_bill_screen.dart';
 
 class ProfileTab extends StatelessWidget {
   const ProfileTab({super.key});
@@ -42,6 +46,7 @@ class ProfileTab extends StatelessWidget {
           _buildGroup(context, '数据', [
             {'icon': Icons.download_outlined, 'label': '导出账单'},
             {'icon': Icons.upload_outlined, 'label': '导入账单'},
+            {'icon': Icons.bar_chart_outlined, 'label': '年度账单'},
           ]),
           const SizedBox(height: 12),
           _buildGroup(context, '其他', [
@@ -142,10 +147,49 @@ class ProfileTab extends StatelessWidget {
 
   void _onItemTap(BuildContext context, String label) {
     switch (label) {
+      case '存钱':
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+              builder: (_) => const SaveHomeScreen()),
+        );
+        break;
       case '资产账户':
         Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const AssetAccountScreen()),
+        );
+        break;
+      case '分类管理':
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const CategoryManageScreen()),
+        );
+        break;
+      case '关注公众号':
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+              builder: (_) => const QrCodeScreen(
+                    imagePath: 'assets/gongzhaohao.jpg',
+                    title: '关注公众号',
+                  )),
+        );
+        break;
+      case '联系客服':
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+              builder: (_) => const QrCodeScreen(
+                    imagePath: 'assets/lianxikefu.jpg',
+                    title: '联系客服',
+                  )),
+        );
+        break;
+      case '年度账单':
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const AnnualBillScreen()),
         );
         break;
       default:

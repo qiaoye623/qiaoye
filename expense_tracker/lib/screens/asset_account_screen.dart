@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:flutter_slidable/flutter_slidable.dart';
 import '../utils/constants.dart';
 import '../models/asset_account.dart';
 import '../providers/asset_account_provider.dart';
@@ -27,8 +26,36 @@ class AssetAccountScreen extends StatelessWidget {
           if (provider.loading) {
             return const Center(child: CircularProgressIndicator());
           }
+          final totalAssets = provider.accounts.fold<double>(
+            0, (sum, a) => sum + a.balance);
           return Column(
             children: [
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF1677FF), Color(0xFF4096FF)],
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('总净资产',
+                        style: TextStyle(fontSize: 14, color: Colors.white70)),
+                    const SizedBox(height: 4),
+                    Text(formatAmount(totalAssets),
+                        style: const TextStyle(
+                            fontSize: 28,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white)),
+                  ],
+                ),
+              ),
               Expanded(
                 child: ListView(
                   padding: const EdgeInsets.all(16),
@@ -76,27 +103,8 @@ class AssetAccountScreen extends StatelessWidget {
   Widget _buildAccountCard(
       BuildContext context, AssetAccount account, AssetAccountProvider provider) {
     final typeLabel = _typeLabel(account.type);
-    return Slidable(
-      endActionPane: ActionPane(
-        motion: const BehindMotion(),
-        children: [
-          SlidableAction(
-            onPressed: (_) => _showEditBalanceDialog(context, provider, account),
-            backgroundColor: const Color(0xFF1677FF),
-            foregroundColor: Colors.white,
-            icon: Icons.edit_outlined,
-            label: '编辑',
-          ),
-          if (!account.isDefault)
-            SlidableAction(
-              onPressed: (_) => _confirmDelete(context, provider, account),
-              backgroundColor: const Color(0xFFF5222D),
-              foregroundColor: Colors.white,
-              icon: Icons.delete_outline,
-              label: '删除',
-            ),
-        ],
-      ),
+    return GestureDetector(
+      onTap: () => _showEditBalanceDialog(context, provider, account),
       child: Container(
         height: 80,
         padding: const EdgeInsets.all(16),
@@ -130,6 +138,8 @@ class AssetAccountScreen extends StatelessWidget {
             ),
             Text(formatAmount(account.balance),
                 style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF333333))),
+            const SizedBox(width: 8),
+            const Icon(Icons.chevron_right, size: 20, color: Color(0xFFCCCCCC)),
           ],
         ),
       ),
@@ -168,6 +178,14 @@ class AssetAccountScreen extends StatelessWidget {
           ),
         ),
         actions: [
+          if (!account.isDefault)
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _confirmDelete(context, provider, account);
+              },
+              child: const Text('删除', style: TextStyle(color: Colors.red)),
+            ),
           TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: const Text('取消'),
@@ -297,12 +315,20 @@ class AssetAccountScreen extends StatelessWidget {
               child: const Text('取消'),
             ),
             TextButton(
-              onPressed: () {
+              onPressed: () async {
                 final name = nameController.text.trim();
                 final balance = double.tryParse(balanceController.text) ?? 0;
                 if (name.isEmpty) return;
-                provider.addAccount(name, selectedIcon, selectedType, balance);
-                Navigator.pop(ctx);
+                try {
+                  await provider.addAccount(name, selectedIcon, selectedType, balance);
+                  if (ctx.mounted) Navigator.pop(ctx);
+                } catch (e) {
+                  if (ctx.mounted) {
+                    ScaffoldMessenger.of(ctx).showSnackBar(
+                      SnackBar(content: Text(e.toString())),
+                    );
+                  }
+                }
               },
               child: const Text('添加', style: TextStyle(color: Color(0xFF1677FF))),
             ),

@@ -41,6 +41,15 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
       icon: t.categoryIcon,
       type: t.type,
     );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (t.accountId != null) {
+        final accounts = context.read<AssetAccountProvider>().accounts;
+        final match = accounts.where((a) => a.id == t.accountId);
+        if (match.isNotEmpty) {
+          setState(() => _selectedAccount = match.first);
+        }
+      }
+    });
   }
 
   @override
@@ -439,6 +448,10 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
 
     setState(() => _saving = true);
 
+    // 预先获取 provider，避免 async gap 后使用 context
+    final txnProvider = context.read<TransactionProvider>();
+    final accountProvider = context.read<AssetAccountProvider>();
+
     final updated = Transaction(
       id: widget.transaction.id,
       amount: amount,
@@ -450,9 +463,38 @@ class _EditTransactionScreenState extends State<EditTransactionScreen> {
       date: DateFormat('yyyy-MM-dd').format(_selectedDate),
       createdAt: widget.transaction.createdAt,
       ledgerId: widget.transaction.ledgerId,
+      accountId: _selectedAccount?.id,
     );
 
-    await context.read<TransactionProvider>().updateTransaction(updated);
+    await txnProvider.updateTransaction(updated);
+
+    // 余额更新：撤销旧交易影响，应用新交易影响
+    final oldT = widget.transaction;
+    final oldAccountId = oldT.accountId;
+    final newAccountId = _selectedAccount?.id;
+    final oldDelta = oldT.type == 'income' ? oldT.amount : -oldT.amount;
+    final newDelta = _selectedType == 'income' ? amount : -amount;
+
+    if (newAccountId != null) {
+      if (oldAccountId != null && oldAccountId == newAccountId) {
+        final netDelta = newDelta - oldDelta;
+        if (netDelta != 0) {
+          final current = accountProvider.accounts.firstWhere((a) => a.id == newAccountId);
+          await accountProvider.updateBalance(newAccountId, current.balance + netDelta);
+        }
+      } else {
+        if (oldAccountId != null) {
+          final oldAccount = accountProvider.accounts.firstWhere((a) => a.id == oldAccountId);
+          await accountProvider.updateBalance(oldAccountId, oldAccount.balance - oldDelta);
+        }
+        final newAccount = accountProvider.accounts.firstWhere((a) => a.id == newAccountId);
+        await accountProvider.updateBalance(newAccountId, newAccount.balance + newDelta);
+      }
+    } else if (oldAccountId != null) {
+      final oldAccount = accountProvider.accounts.firstWhere((a) => a.id == oldAccountId);
+      await accountProvider.updateBalance(oldAccountId, oldAccount.balance - oldDelta);
+    }
+
     if (mounted) Navigator.pop(context);
   }
 

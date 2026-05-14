@@ -9,6 +9,7 @@ class Transaction {
   final String date;
   final String createdAt;
   final int ledgerId;
+  final int? accountId;
 
   Transaction({
     this.id,
@@ -21,6 +22,7 @@ class Transaction {
     required this.date,
     String? createdAt,
     this.ledgerId = 1,
+    this.accountId,
   }) : createdAt = createdAt ?? DateTime.now().toIso8601String();
 
   Map<String, dynamic> toMap() {
@@ -35,13 +37,14 @@ class Transaction {
       'date': date,
       'createdAt': createdAt,
       'ledgerId': ledgerId,
+      'accountId': accountId,
     };
   }
 
   factory Transaction.fromMap(Map<String, dynamic> map) {
     return Transaction(
       id: map['id'] as int?,
-      amount: map['amount'] as double,
+      amount: (map['amount'] as num).toDouble(),
       type: map['type'] as String,
       categoryId: map['categoryId'] as int,
       categoryName: map['categoryName'] as String,
@@ -50,6 +53,35 @@ class Transaction {
       date: map['date'] as String,
       createdAt: map['createdAt'] as String?,
       ledgerId: map['ledgerId'] as int? ?? 1,
+      accountId: map['accountId'] as int?,
+    );
+  }
+
+  Transaction copyWith({
+    int? id,
+    double? amount,
+    String? type,
+    int? categoryId,
+    String? categoryName,
+    String? categoryIcon,
+    String? note,
+    String? date,
+    String? createdAt,
+    int? ledgerId,
+    int? accountId,
+  }) {
+    return Transaction(
+      id: id ?? this.id,
+      amount: amount ?? this.amount,
+      type: type ?? this.type,
+      categoryId: categoryId ?? this.categoryId,
+      categoryName: categoryName ?? this.categoryName,
+      categoryIcon: categoryIcon ?? this.categoryIcon,
+      note: note ?? this.note,
+      date: date ?? this.date,
+      createdAt: createdAt ?? this.createdAt,
+      ledgerId: ledgerId ?? this.ledgerId,
+      accountId: accountId ?? this.accountId,
     );
   }
 }

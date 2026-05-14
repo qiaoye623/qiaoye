@@ -23,15 +23,19 @@ class LedgerProvider extends ChangeNotifier {
     _loading = true;
     notifyListeners();
 
-    _ledgers = await _db.getLedgers();
-    await _loadAllSummaries();
-    if (_currentLedger == null) {
-      _currentLedger = _ledgers.isNotEmpty ? _ledgers.first : null;
-    } else {
-      final stillExists = _ledgers.any((l) => l.id == _currentLedger!.id);
-      if (!stillExists) {
+    try {
+      _ledgers = await _db.getLedgers();
+      await _loadAllSummaries();
+      if (_currentLedger == null) {
         _currentLedger = _ledgers.isNotEmpty ? _ledgers.first : null;
+      } else {
+        final stillExists = _ledgers.any((l) => l.id == _currentLedger!.id);
+        if (!stillExists) {
+          _currentLedger = _ledgers.isNotEmpty ? _ledgers.first : null;
+        }
       }
+    } catch (e) {
+      debugPrint('Failed to load ledgers: $e');
     }
 
     _loading = false;
@@ -59,6 +63,9 @@ class LedgerProvider extends ChangeNotifier {
     if (_ledgers.length >= 20) {
       throw Exception('最多创建20个账本');
     }
+    if (_ledgers.any((l) => l.name == name)) {
+      throw Exception('账本名称已存在');
+    }
     final ledger = Ledger(
       name: name,
       icon: icon,
@@ -84,6 +91,17 @@ class LedgerProvider extends ChangeNotifier {
     if (_currentLedger?.id == id) {
       _currentLedger = newLedger;
     }
+    notifyListeners();
+  }
+
+  Future<void> setDefaultLedger(int id) async {
+    await _db.setDefaultLedger(id);
+    final oldIdx = _ledgers.indexWhere((l) => l.isDefault);
+    final newIdx = _ledgers.indexWhere((l) => l.id == id);
+    if (newIdx == -1) return;
+    if (oldIdx >= 0) _ledgers[oldIdx] = _ledgers[oldIdx].copyWith(isDefault: false);
+    _ledgers[newIdx] = _ledgers[newIdx].copyWith(isDefault: true);
+    _currentLedger = _ledgers[newIdx];
     notifyListeners();
   }
 
