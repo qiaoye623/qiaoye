@@ -1,0 +1,20 @@
+# Tool caches
+.omc/
+.ruff_cache/
+
+# Build output
+dist/
+
+# Logs
+*.log
+
+# Scraped HTML test files
+*.html
+
+# Temp files
+
+# Note files (keep only CLAUDE.md)
+修正版.md
+看看这个.md
+添加用户输入框识别方式.md
+红蓝绿三波颜色数值.md
